@@ -533,20 +533,20 @@ def create_game_world():
                 )
             )
 
-    walkable = [
-        (x, y)
-        for y in range(MAP_ROWS)
-        for x in range(MAP_COLS)
-        if world[y][x] not in WATER_TYPES
-    ]
-
-    player_x, player_y = min(
-        walkable,
-        key=lambda position: math.dist(
-            position,
-            (29, 23),
+    spawn = next(
+        (
+            position
+            for position, name in settlements.items()
+            if name == "Южный Предел"
         ),
+        None,
     )
+    if spawn is None:
+        raise RuntimeError(
+            "Не удалось создать город «Южный Предел»"
+        )
+
+    player_x, player_y = spawn
 
     return (
         world,

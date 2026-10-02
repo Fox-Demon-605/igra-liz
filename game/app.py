@@ -1,3 +1,4 @@
+from collections import deque
 import tkinter as tk
 
 from .config import (
@@ -51,9 +52,9 @@ def run():
     tk.Label(
         header,
         text=(
-            "Исследуй материк  •  Клик — перемещение  •  "
-            "Колёсико — прокрутка карты  •  "
-            "Shift + колёсико — по горизонтали"
+            "ЛКМ — идти к клетке  •  "
+            "ПКМ + движение — перемещать карту  •  "
+            "Колёсико — масштаб"
         ),
         bg=COLORS["background"],
         fg=COLORS["muted"],
@@ -327,18 +328,155 @@ def run():
             text=f"Координаты: {player_x}, {player_y}"
         )
 
-    def on_click(event):
-        nonlocal player_x, player_y
+        # Размер клетки, которым пользуются существующие методы отрисовки.
+    # Масштабируем уже нарисованный Canvas, поэтому размеры мира
+    # в координатах Canvas тоже меняются.
+    zoom = 1.0
+    zoom_min = 0.5
+    zoom_max = 2.0
+    zoom_step = 1.1
 
-        x = int(canvas.canvasx(event.x) // CELL_SIZE)
-        y = int(canvas.canvasy(event.y) // CELL_SIZE)
+    movement_after_id = None
+    movement_path = deque()
+    movement_delay_ms = 110
 
-        if not (0 <= x < MAP_COLS and 0 <= y < MAP_ROWS):
+    def update_scrollregion():
+        canvas.configure(
+            scrollregion=(
+                0,
+                0,
+                MAP_COLS * CELL_SIZE * zoom,
+                MAP_ROWS * CELL_SIZE * zoom,
+            )
+        )
+
+    def center_on_player():
+        root.update_idletasks()
+
+        world_width = MAP_COLS * CELL_SIZE * zoom
+        world_height = MAP_ROWS * CELL_SIZE * zoom
+        player_center_x = (player_x + 0.5) * CELL_SIZE * zoom
+        player_center_y = (player_y + 0.5) * CELL_SIZE * zoom
+
+        if world_width > canvas.winfo_width():
+            left = player_center_x - canvas.winfo_width() / 2
+            canvas.xview_moveto(
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        left / world_width,
+                    ),
+                )
+            )
+        else:
+            canvas.xview_moveto(0)
+
+        if world_height > canvas.winfo_height():
+            top = player_center_y - canvas.winfo_height() / 2
+            canvas.yview_moveto(
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        top / world_height,
+                    ),
+                )
+            )
+        else:
+            canvas.yview_moveto(0)
+
+    def find_path(start, goal):
+        """Ищет путь по соседним клеткам в обход моря."""
+        queue = deque([start])
+        previous = {start: None}
+
+        while queue:
+            x, y = queue.popleft()
+
+            if (x, y) == goal:
+                break
+
+            for dx, dy in (
+                (1, 0),
+                (-1, 0),
+                (0, 1),
+                (0, -1),
+            ):
+                nx = x + dx
+                ny = y + dy
+                neighbor = (nx, ny)
+
+                if not (
+                    0 <= nx < MAP_COLS
+                    and 0 <= ny < MAP_ROWS
+                ):
+                    continue
+                if neighbor in previous:
+                    continue
+                if world[ny][nx] in WATER_TYPES:
+                    continue
+
+                previous[neighbor] = (x, y)
+                queue.append(neighbor)
+
+        if goal not in previous:
+            return []
+
+        path = []
+        current = goal
+        while current != start:
+            path.append(current)
+            current = previous[current]
+
+        path.reverse()
+        return path
+
+    def move_one_cell():
+        nonlocal player_x, player_y, movement_after_id
+
+        movement_after_id = None
+        if not movement_path:
             return
 
-        kind = world[y][x]
+        player_x, player_y = movement_path.popleft()
 
-        if kind in WATER_TYPES:
+        # Не вызываем draw_map(): меняется только маркер.
+        renderer.draw_player(player_x, player_y)
+        update_location()
+
+        position = (player_x, player_y)
+        if position in settlements:
+            add_log(f"Вы прибыли в {settlements[position]}.")
+
+        if movement_path:
+            movement_after_id = root.after(
+                movement_delay_ms,
+                move_one_cell,
+            )
+        else:
+            kind = world[player_y][player_x]
+            if position not in settlements:
+                add_log(
+                    f"Прибыли на клетку "
+                    f"({player_x}, {player_y}): "
+                    f"{TERRAIN[kind]['name'].lower()}."
+                )
+
+    def on_click(event):
+        nonlocal movement_after_id, movement_path
+
+        cell_size = CELL_SIZE * zoom
+        x = int(canvas.canvasx(event.x) // cell_size)
+        y = int(canvas.canvasy(event.y) // cell_size)
+
+        if not (
+            0 <= x < MAP_COLS
+            and 0 <= y < MAP_ROWS
+        ):
+            return
+
+        if world[y][x] in WATER_TYPES:
             add_log(
                 "Здесь море. Пока без корабля не пройти."
             )
@@ -347,59 +485,120 @@ def run():
         if (x, y) == (player_x, player_y):
             return
 
-        player_x = x
-        player_y = y
+        path = find_path(
+            (player_x, player_y),
+            (x, y),
+        )
+        if not path:
+            add_log("До этой клетки нет сухопутного пути.")
+            return
 
-        if (x, y) in settlements:
-            add_log(
-                f"Вы прибыли в {settlements[(x, y)]}."
-            )
-        else:
-            add_log(
-                f"Клетка ({x}, {y}): "
-                f"{TERRAIN[kind]['name'].lower()}."
+        # Новый клик заменяет прежний маршрут.
+        if movement_after_id is not None:
+            root.after_cancel(movement_after_id)
+            movement_after_id = None
+
+        movement_path = deque(path)
+        add_log(
+            f"Отправляемся к клетке ({x}, {y}). "
+            f"Шагов: {len(path)}."
+        )
+        move_one_cell()
+
+    def zoom_at(event, direction):
+        nonlocal zoom
+
+        factor = (
+            zoom_step
+            if direction > 0
+            else 1 / zoom_step
+        )
+        new_zoom = max(
+            zoom_min,
+            min(zoom_max, zoom * factor),
+        )
+
+        if abs(new_zoom - zoom) < 1e-9:
+            return "break"
+
+        # Сохраняем точку под указателем мыши на том же
+        # месте экрана после изменения масштаба.
+        old_x = canvas.canvasx(event.x)
+        old_y = canvas.canvasy(event.y)
+        actual_factor = new_zoom / zoom
+
+        canvas.scale(
+            "all",
+            0,
+            0,
+            actual_factor,
+            actual_factor,
+        )
+        zoom = new_zoom
+        update_scrollregion()
+        root.update_idletasks()
+
+        new_x = old_x * actual_factor
+        new_y = old_y * actual_factor
+
+        world_width = MAP_COLS * CELL_SIZE * zoom
+        world_height = MAP_ROWS * CELL_SIZE * zoom
+
+        if world_width > canvas.winfo_width():
+            desired_left = new_x - event.x
+            canvas.xview_moveto(
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        desired_left / world_width,
+                    ),
+                )
             )
 
-        update_location()
-        renderer.move_player(player_x, player_y)
+        if world_height > canvas.winfo_height():
+            desired_top = new_y - event.y
+            canvas.yview_moveto(
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        desired_top / world_height,
+                    ),
+                )
+            )
+
+        return "break"
 
     def on_mouse_wheel(event):
         if event.delta == 0:
             return "break"
 
-        direction = -1 if event.delta > 0 else 1
-        steps = max(1, abs(event.delta) // 120)
-
-        if event.state & 0x0001:
-            canvas.xview_scroll(
-                direction * steps,
-                "units",
-            )
-        else:
-            canvas.yview_scroll(
-                direction * steps,
-                "units",
-            )
-
-        return "break"
+        direction = 1 if event.delta > 0 else -1
+        return zoom_at(event, direction)
 
     def on_linux_mouse_wheel(event):
-        direction = -1 if event.num == 4 else 1
+        direction = 1 if event.num == 4 else -1
+        return zoom_at(event, direction)
 
-        if event.state & 0x0001:
-            canvas.xview_scroll(
-                direction,
-                "units",
-            )
-        else:
-            canvas.yview_scroll(
-                direction,
-                "units",
-            )
+    def on_pan_start(event):
+        canvas.configure(cursor="fleur")
+        canvas.scan_mark(event.x, event.y)
 
-        return "break"
+    def on_pan_drag(event):
+        canvas.scan_dragto(
+            event.x,
+            event.y,
+            gain=1,
+        )
+
+    def on_pan_end(_event):
+        canvas.configure(cursor="hand2")
 
     canvas.bind("<Button-1>", on_click)
+    canvas.bind("<ButtonPress-3>", on_pan_start)
+    canvas.bind("<B3-Motion>", on_pan_drag)
+    canvas.bind("<ButtonRelease-3>", on_pan_end)
     canvas.bind("<MouseWheel>", on_mouse_wheel)
     canvas.bind("<Button-4>", on_linux_mouse_wheel)
     canvas.bind("<Button-5>", on_linux_mouse_wheel)
@@ -407,12 +606,9 @@ def run():
     renderer.draw_map(player_x, player_y)
     update_location()
     add_log(
-        "Путешествие начинается. "
-        "Перед вами огромный материк."
+        "Путешествие начинается в городе "
+        "Южный Предел."
     )
 
-    root.update_idletasks()
-    canvas.xview_moveto(0.28)
-    canvas.yview_moveto(0.27)
-
+    center_on_player()
     root.mainloop()

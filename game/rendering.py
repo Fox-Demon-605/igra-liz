@@ -336,6 +336,9 @@ class MapRenderer:
             )
 
     def draw_player(self, player_x, player_y):
+        # Удаляем только прежний маркер, не перерисовывая карту.
+        self.canvas.delete("player")
+
         cx = player_x * CELL_SIZE + CELL_SIZE / 2
         cy = player_y * CELL_SIZE + CELL_SIZE / 2
 
@@ -346,7 +349,7 @@ class MapRenderer:
             cy + 20,
             outline=COLORS["gold"],
             width=3,
-            tags=("player",),
+            tags="player",
         )
         self.canvas.create_oval(
             cx - 9,
@@ -356,7 +359,7 @@ class MapRenderer:
             fill=COLORS["player"],
             outline="#3E2B20",
             width=2,
-            tags=("player",),
+            tags="player",
         )
 
     def move_player(self, player_x, player_y):
@@ -377,7 +380,6 @@ class MapRenderer:
         self.canvas.tag_raise("player")
 
     def draw_map(self, player_x, player_y):
-        """Полностью рисует карту при запуске или изменении мира."""
         self.canvas.delete("all")
 
         for y in range(MAP_ROWS):
@@ -387,7 +389,6 @@ class MapRenderer:
         self.draw_roads()
         self.draw_rivers()
         self.draw_settlements()
-        self.update_settlement_labels(player_x, player_y)
         self.draw_player(player_x, player_y)
 
         self.player_position = (player_x, player_y)
