@@ -54,7 +54,6 @@ def run():
         text=(
             "ЛКМ — идти к клетке  •  "
             "ПКМ + движение — перемещать карту  •  "
-            "Колёсико — масштаб"
         ),
         bg=COLORS["background"],
         fg=COLORS["muted"],
@@ -599,9 +598,6 @@ def run():
     canvas.bind("<ButtonPress-3>", on_pan_start)
     canvas.bind("<B3-Motion>", on_pan_drag)
     canvas.bind("<ButtonRelease-3>", on_pan_end)
-    canvas.bind("<MouseWheel>", on_mouse_wheel)
-    canvas.bind("<Button-4>", on_linux_mouse_wheel)
-    canvas.bind("<Button-5>", on_linux_mouse_wheel)
 
     renderer.draw_map(player_x, player_y)
     update_location()
