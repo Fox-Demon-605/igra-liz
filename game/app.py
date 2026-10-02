@@ -97,7 +97,6 @@ def run():
         orient=tk.VERTICAL,
         command=canvas.yview,
     )
-
     horizontal_scrollbar = tk.Scrollbar(
         map_panel,
         orient=tk.HORIZONTAL,
@@ -331,25 +330,17 @@ def run():
     def on_click(event):
         nonlocal player_x, player_y
 
-        x = int(
-            canvas.canvasx(event.x) // CELL_SIZE
-        )
-        y = int(
-            canvas.canvasy(event.y) // CELL_SIZE
-        )
+        x = int(canvas.canvasx(event.x) // CELL_SIZE)
+        y = int(canvas.canvasy(event.y) // CELL_SIZE)
 
-        if not (
-            0 <= x < MAP_COLS
-            and 0 <= y < MAP_ROWS
-        ):
+        if not (0 <= x < MAP_COLS and 0 <= y < MAP_ROWS):
             return
 
         kind = world[y][x]
 
         if kind in WATER_TYPES:
             add_log(
-                "Здесь море. Пока без корабля "
-                "не пройти."
+                "Здесь море. Пока без корабля не пройти."
             )
             return
 
@@ -361,8 +352,7 @@ def run():
 
         if (x, y) in settlements:
             add_log(
-                f"Вы прибыли в "
-                f"{settlements[(x, y)]}."
+                f"Вы прибыли в {settlements[(x, y)]}."
             )
         else:
             add_log(
@@ -371,19 +361,14 @@ def run():
             )
 
         update_location()
-        renderer.draw_map(player_x, player_y)
+        renderer.move_player(player_x, player_y)
 
     def on_mouse_wheel(event):
         if event.delta == 0:
             return "break"
 
-        direction = (
-            -1 if event.delta > 0 else 1
-        )
-        steps = max(
-            1,
-            abs(event.delta) // 120,
-        )
+        direction = -1 if event.delta > 0 else 1
+        steps = max(1, abs(event.delta) // 120)
 
         if event.state & 0x0001:
             canvas.xview_scroll(
@@ -399,9 +384,7 @@ def run():
         return "break"
 
     def on_linux_mouse_wheel(event):
-        direction = (
-            -1 if event.num == 4 else 1
-        )
+        direction = -1 if event.num == 4 else 1
 
         if event.state & 0x0001:
             canvas.xview_scroll(

@@ -27,6 +27,7 @@ class MapRenderer:
         self.settlements = settlements
         self.river_tiles = river_tiles
         self.road_tiles = road_tiles
+        self.player_position = None
 
     def draw_tree(self, cx, cy, color, size=12):
         self.canvas.create_polygon(
@@ -39,7 +40,6 @@ class MapRenderer:
             fill=color,
             outline="",
         )
-
         self.canvas.create_line(
             cx,
             cy + size * 0.2,
@@ -162,7 +162,6 @@ class MapRenderer:
                 outline="#48545B",
                 width=1,
             )
-
             self.canvas.create_polygon(
                 left + 19,
                 top + 18,
@@ -209,14 +208,8 @@ class MapRenderer:
                 if (x + dx, y + dy) not in self.road_tiles:
                     continue
 
-                other_x = (
-                    (x + dx) * CELL_SIZE
-                    + CELL_SIZE / 2
-                )
-                other_y = (
-                    (y + dy) * CELL_SIZE
-                    + CELL_SIZE / 2
-                )
+                other_x = (x + dx) * CELL_SIZE + CELL_SIZE / 2
+                other_y = (y + dy) * CELL_SIZE + CELL_SIZE / 2
 
                 self.canvas.create_line(
                     cx,
@@ -226,7 +219,6 @@ class MapRenderer:
                     fill="#3A2D24",
                     width=6,
                 )
-
                 self.canvas.create_line(
                     cx,
                     cy,
@@ -252,12 +244,14 @@ class MapRenderer:
                     (0, 1),
                     (0, -1),
                 )
-                if (x + dx, y + dy) in self.river_tiles
-                or (
-                    0 <= x + dx < MAP_COLS
-                    and 0 <= y + dy < MAP_ROWS
-                    and self.world[y + dy][x + dx]
-                    in WATER_TYPES
+                if (
+                    (x + dx, y + dy) in self.river_tiles
+                    or (
+                        0 <= x + dx < MAP_COLS
+                        and 0 <= y + dy < MAP_ROWS
+                        and self.world[y + dy][x + dx]
+                        in WATER_TYPES
+                    )
                 )
             ]
 
@@ -272,14 +266,8 @@ class MapRenderer:
                 )
 
             for nx, ny in neighbors:
-                other_x = (
-                    nx * CELL_SIZE
-                    + CELL_SIZE / 2
-                )
-                other_y = (
-                    ny * CELL_SIZE
-                    + CELL_SIZE / 2
-                )
+                other_x = nx * CELL_SIZE + CELL_SIZE / 2
+                other_y = ny * CELL_SIZE + CELL_SIZE / 2
 
                 self.canvas.create_line(
                     cx,
@@ -289,7 +277,6 @@ class MapRenderer:
                     fill="#173F59",
                     width=9,
                 )
-
                 self.canvas.create_line(
                     cx,
                     cy,
@@ -299,8 +286,9 @@ class MapRenderer:
                     width=5,
                 )
 
-    def draw_settlements(self, player_x, player_y):
-        for (x, y), name in self.settlements.items():
+    def draw_settlements(self):
+        """Рисует значки поселений один раз."""
+        for (x, y), _name in self.settlements.items():
             cx = x * CELL_SIZE + CELL_SIZE / 2
             cy = y * CELL_SIZE + CELL_SIZE / 2
 
@@ -315,7 +303,6 @@ class MapRenderer:
                 outline=COLORS["gold"],
                 width=2 if is_city else 1,
             )
-
             self.canvas.create_text(
                 cx,
                 cy - 1,
@@ -328,17 +315,25 @@ class MapRenderer:
                 fill=COLORS["gold"],
             )
 
-            if (
-                abs(player_x - x) <= 5
-                and abs(player_y - y) <= 4
-            ):
-                self.canvas.create_text(
-                    cx,
-                    cy - 28,
-                    text=name,
-                    font=("Arial", 9, "bold"),
-                    fill="#FFF2D5",
-                )
+    def update_settlement_labels(self, player_x, player_y):
+        """Перерисовывает только подписи рядом с игроком."""
+        self.canvas.delete("nearby_labels")
+
+        for (x, y), name in self.settlements.items():
+            if abs(player_x - x) > 5 or abs(player_y - y) > 4:
+                continue
+
+            cx = x * CELL_SIZE + CELL_SIZE / 2
+            cy = y * CELL_SIZE + CELL_SIZE / 2
+
+            self.canvas.create_text(
+                cx,
+                cy - 28,
+                text=name,
+                font=("Arial", 9, "bold"),
+                fill="#FFF2D5",
+                tags=("nearby_labels",),
+            )
 
     def draw_player(self, player_x, player_y):
         cx = player_x * CELL_SIZE + CELL_SIZE / 2
@@ -351,8 +346,8 @@ class MapRenderer:
             cy + 20,
             outline=COLORS["gold"],
             width=3,
+            tags=("player",),
         )
-
         self.canvas.create_oval(
             cx - 9,
             cy - 9,
@@ -361,9 +356,28 @@ class MapRenderer:
             fill=COLORS["player"],
             outline="#3E2B20",
             width=2,
+            tags=("player",),
         )
 
+    def move_player(self, player_x, player_y):
+        """Перемещает маркер, не перерисовывая карту."""
+        if self.player_position is None:
+            raise RuntimeError(
+                "Сначала вызови draw_map()."
+            )
+
+        old_x, old_y = self.player_position
+        dx = (player_x - old_x) * CELL_SIZE
+        dy = (player_y - old_y) * CELL_SIZE
+
+        self.canvas.move("player", dx, dy)
+        self.player_position = (player_x, player_y)
+
+        self.update_settlement_labels(player_x, player_y)
+        self.canvas.tag_raise("player")
+
     def draw_map(self, player_x, player_y):
+        """Полностью рисует карту при запуске или изменении мира."""
         self.canvas.delete("all")
 
         for y in range(MAP_ROWS):
@@ -372,5 +386,8 @@ class MapRenderer:
 
         self.draw_roads()
         self.draw_rivers()
-        self.draw_settlements(player_x, player_y)
+        self.draw_settlements()
+        self.update_settlement_labels(player_x, player_y)
         self.draw_player(player_x, player_y)
+
+        self.player_position = (player_x, player_y)
